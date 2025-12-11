@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { useAppStore } from "@/store/app-store";
-import { Button } from "@/components/ui/button";
 import { useCliStatus } from "./settings-view/hooks/use-cli-status";
 import { useScrollTracking } from "@/hooks/use-scroll-tracking";
 import { NAV_ITEMS } from "./settings-view/config/navigation";
@@ -23,7 +22,6 @@ import type { Project as ElectronProject } from "@/lib/electron";
 
 export function SettingsView() {
   const {
-    setCurrentView,
     theme,
     setTheme,
     setProjectTheme,
@@ -160,18 +158,6 @@ export function SettingsView() {
               project={settingsProject}
               onDeleteClick={() => setShowDeleteDialog(true)}
             />
-
-            {/* Save Button */}
-            <div className="flex items-center gap-4">
-              <Button
-                variant="secondary"
-                onClick={() => setCurrentView("welcome")}
-                className="bg-secondary hover:bg-accent text-secondary-foreground border border-border"
-                data-testid="back-to-home"
-              >
-                Back to Home
-              </Button>
-            </div>
           </div>
         </div>
       </div>
