@@ -144,11 +144,25 @@ async function startServer() {
     ? path.join(process.resourcesPath, "server", "node_modules")
     : path.join(__dirname, "../../server/node_modules");
 
+  // Set default workspace directory to user's Documents/Automaker
+  const defaultWorkspaceDir = path.join(app.getPath("documents"), "Automaker");
+
+  // Ensure workspace directory exists
+  if (!fs.existsSync(defaultWorkspaceDir)) {
+    try {
+      fs.mkdirSync(defaultWorkspaceDir, { recursive: true });
+      console.log("[Electron] Created workspace directory:", defaultWorkspaceDir);
+    } catch (error) {
+      console.error("[Electron] Failed to create workspace directory:", error);
+    }
+  }
+
   const env = {
     ...process.env,
     PORT: SERVER_PORT.toString(),
     DATA_DIR: app.getPath("userData"),
     NODE_PATH: serverNodeModules,
+    WORKSPACE_DIR: process.env.WORKSPACE_DIR || defaultWorkspaceDir,
   };
 
   console.log("[Electron] Starting backend server...");
