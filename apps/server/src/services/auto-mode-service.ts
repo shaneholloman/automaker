@@ -17,15 +17,11 @@ import { promisify } from "util";
 import path from "path";
 import fs from "fs/promises";
 import type { EventEmitter, EventType } from "../lib/events.js";
+import { buildPromptWithImages } from "../lib/prompt-builder.js";
+import { resolveModelString, DEFAULT_MODELS } from "../lib/model-resolver.js";
+import { isAbortError, classifyError } from "../lib/error-handler.js";
 
 const execAsync = promisify(exec);
-
-// Model name mappings for Claude (matching electron version)
-const MODEL_MAP: Record<string, string> = {
-  haiku: "claude-haiku-4-5",
-  sonnet: "claude-sonnet-4-20250514",
-  opus: "claude-opus-4-5-20251101",
-};
 
 interface Feature {
   id: string;
@@ -36,36 +32,6 @@ interface Feature {
   spec?: string;
   model?: string; // Model to use for this feature
   imagePaths?: Array<string | { path: string; filename?: string; mimeType?: string; [key: string]: unknown }>;
-}
-
-/**
- * Get model string from feature's model property
- * Supports model keys like "opus", "sonnet", "haiku" or full model strings
- * Also supports OpenAI/Codex models like "gpt-5.2", "gpt-5.1-codex", etc.
- */
-function getModelString(feature: Feature): string {
-  const modelKey = feature.model || "opus"; // Default to opus
-  
-  // Check if it's an OpenAI/Codex model (starts with "gpt-" or "o" for O-series)
-  if (modelKey.startsWith("gpt-") || modelKey.startsWith("o")) {
-    console.log(`[AutoMode] Using OpenAI/Codex model from feature ${feature.id}: ${modelKey} (passing through)`);
-    return modelKey;
-  }
-  
-  // If it's already a full Claude model string (contains "claude-"), use it directly
-  if (modelKey.includes("claude-")) {
-    console.log(`[AutoMode] Using Claude model from feature ${feature.id}: ${modelKey} (full model string)`);
-    return modelKey;
-  }
-  
-  // Otherwise, look it up in the Claude model map
-  const modelString = MODEL_MAP[modelKey] || MODEL_MAP.opus;
-  if (modelString !== MODEL_MAP.opus || modelKey === "opus") {
-    console.log(`[AutoMode] Resolved Claude model for feature ${feature.id}: "${modelKey}" -> "${modelString}"`);
-  } else {
-    console.warn(`[AutoMode] Unknown model key "${modelKey}" for feature ${feature.id}, defaulting to "${modelString}"`);
-  }
-  return modelString;
 }
 
 interface RunningFeature {
@@ -246,7 +212,7 @@ export class AutoModeService {
       );
 
       // Get model from feature
-      const model = getModelString(feature);
+      const model = resolveModelString(feature.model, DEFAULT_MODELS.claude);
       console.log(`[AutoMode] Executing feature ${featureId} with model: ${model}`);
 
       // Run the agent with the feature's model and images
@@ -262,7 +228,9 @@ export class AutoModeService {
         projectPath,
       });
     } catch (error) {
-      if (error instanceof AbortError || (error as Error)?.name === "AbortError") {
+      const errorInfo = classifyError(error);
+
+      if (errorInfo.isAbort) {
         this.emitAutoModeEvent("auto_mode_feature_complete", {
           featureId,
           passes: false,
@@ -270,17 +238,12 @@ export class AutoModeService {
           projectPath,
         });
       } else {
-        const errorMessage = (error as Error).message || "Unknown error";
-        const isAuthError = errorMessage.includes("Authentication failed") ||
-                           errorMessage.includes("Invalid API key") ||
-                           errorMessage.includes("authentication_failed");
-
         console.error(`[AutoMode] Feature ${featureId} failed:`, error);
         await this.updateFeatureStatus(projectPath, featureId, "backlog");
         this.emitAutoModeEvent("auto_mode_error", {
           featureId,
-          error: errorMessage,
-          errorType: isAuthError ? "authentication" : "execution",
+          error: errorInfo.message,
+          errorType: errorInfo.isAuth ? "authentication" : "execution",
           projectPath,
         });
       }
@@ -382,7 +345,7 @@ export class AutoModeService {
     try {
       // Load feature to get its model
       const feature = await this.loadFeature(projectPath, featureId);
-      const model = feature ? getModelString(feature) : MODEL_MAP.opus;
+      const model = resolveModelString(feature?.model, DEFAULT_MODELS.claude);
       console.log(`[AutoMode] Follow-up for feature ${featureId} using model: ${model}`);
 
       // Update feature status to in_progress
@@ -513,7 +476,7 @@ Please continue from where you left off and address the new instructions above.`
         projectPath,
       });
     } catch (error) {
-      if (!(error instanceof AbortError)) {
+      if (!isAbortError(error)) {
         this.emitAutoModeEvent("auto_mode_error", {
           featureId,
           error: (error as Error).message,
@@ -909,7 +872,7 @@ When done, summarize what you implemented and any notes for the developer.`;
     imagePaths?: string[],
     model?: string
   ): Promise<void> {
-    const finalModel = model || MODEL_MAP.opus;
+    const finalModel = resolveModelString(model, DEFAULT_MODELS.claude);
     console.log(`[AutoMode] runAgent called for feature ${featureId} with model: ${finalModel}`);
 
     // Get provider for this model
@@ -919,51 +882,13 @@ When done, summarize what you implemented and any notes for the developer.`;
       `[AutoMode] Using provider "${provider.getName()}" for model "${finalModel}"`
     );
 
-    // Build prompt content with images (like AgentService)
-    let promptContent: string | Array<{ type: string; text?: string; source?: object }> = prompt;
-
-    if (imagePaths && imagePaths.length > 0) {
-      const contentBlocks: Array<{ type: string; text?: string; source?: object }> = [];
-
-      // Add text block first
-      contentBlocks.push({ type: "text", text: prompt });
-
-      // Add image blocks (for vision models)
-      for (const imagePath of imagePaths) {
-        try {
-          // Make path absolute by prepending workDir if it's relative
-          const absolutePath = path.isAbsolute(imagePath)
-            ? imagePath
-            : path.join(workDir, imagePath);
-
-          const imageBuffer = await fs.readFile(absolutePath);
-          const base64Data = imageBuffer.toString("base64");
-          const ext = path.extname(imagePath).toLowerCase();
-          const mimeTypeMap: Record<string, string> = {
-            ".jpg": "image/jpeg",
-            ".jpeg": "image/jpeg",
-            ".png": "image/png",
-            ".gif": "image/gif",
-            ".webp": "image/webp",
-          };
-          const mediaType = mimeTypeMap[ext] || "image/png";
-
-          contentBlocks.push({
-            type: "image",
-            source: {
-              type: "base64",
-              media_type: mediaType,
-              data: base64Data,
-            },
-          });
-
-        } catch (error) {
-          console.error(`[AutoMode] Failed to load image ${imagePath}:`, error);
-        }
-      }
-
-      promptContent = contentBlocks;
-    }
+    // Build prompt content with images using utility
+    const { content: promptContent } = await buildPromptWithImages(
+      prompt,
+      imagePaths,
+      workDir,
+      false // don't duplicate paths in text
+    );
 
     const options: ExecuteOptions = {
       prompt: promptContent,

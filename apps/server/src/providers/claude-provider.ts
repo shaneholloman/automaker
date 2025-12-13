@@ -7,6 +7,7 @@
 
 import { query, type Options } from "@anthropic-ai/claude-agent-sdk";
 import { BaseProvider } from "./base-provider.js";
+import { convertHistoryToMessages, normalizeContentBlocks } from "../lib/conversation-utils.js";
 import type {
   ExecuteOptions,
   ProviderMessage,
@@ -64,19 +65,10 @@ export class ClaudeProvider extends BaseProvider {
     if (conversationHistory && conversationHistory.length > 0) {
       // Multi-turn conversation with history
       promptPayload = (async function* () {
-        // Yield all previous messages first
-        for (const historyMsg of conversationHistory) {
-          yield {
-            type: historyMsg.role,
-            session_id: "",
-            message: {
-              role: historyMsg.role,
-              content: Array.isArray(historyMsg.content)
-                ? historyMsg.content
-                : [{ type: "text", text: historyMsg.content }],
-            },
-            parent_tool_use_id: null,
-          };
+        // Yield history messages using utility
+        const historyMessages = convertHistoryToMessages(conversationHistory);
+        for (const msg of historyMessages) {
+          yield msg;
         }
 
         // Yield current prompt
@@ -85,9 +77,7 @@ export class ClaudeProvider extends BaseProvider {
           session_id: "",
           message: {
             role: "user" as const,
-            content: Array.isArray(prompt)
-              ? prompt
-              : [{ type: "text", text: prompt }],
+            content: normalizeContentBlocks(prompt),
           },
           parent_tool_use_id: null,
         };

@@ -9,6 +9,7 @@ import { BaseProvider } from "./base-provider.js";
 import { CodexCliDetector } from "./codex-cli-detector.js";
 import { codexConfigManager } from "./codex-config-manager.js";
 import { spawnJSONLProcess } from "../lib/subprocess-manager.js";
+import { formatHistoryAsText } from "../lib/conversation-utils.js";
 import type {
   ExecuteOptions,
   ProviderMessage,
@@ -99,14 +100,8 @@ export class CodexProvider extends BaseProvider {
 
     // Add conversation history
     if (conversationHistory && conversationHistory.length > 0) {
-      let historyText = "Previous conversation:\n\n";
-      for (const msg of conversationHistory) {
-        const contentText = typeof msg.content === "string"
-          ? msg.content
-          : msg.content.map(c => c.text || "").join("");
-        historyText += `${msg.role === "user" ? "User" : "Assistant"}: ${contentText}\n\n`;
-      }
-      combinedPrompt = `${historyText}---\n\nCurrent request:\n${combinedPrompt}`;
+      const historyText = formatHistoryAsText(conversationHistory);
+      combinedPrompt = `${historyText}Current request:\n${combinedPrompt}`;
     }
 
     // Build command arguments

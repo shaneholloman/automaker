@@ -9,6 +9,12 @@ import fs from "fs/promises";
 import type { EventEmitter } from "../lib/events.js";
 import { ProviderFactory } from "../providers/provider-factory.js";
 import type { ExecuteOptions } from "../providers/types.js";
+import {
+  readImageAsBase64,
+} from "../lib/image-handler.js";
+import { buildPromptWithImages } from "../lib/prompt-builder.js";
+import { getEffectiveModel } from "../lib/model-resolver.js";
+import { isAbortError } from "../lib/error-handler.js";
 
 interface Message {
   id: string;
@@ -123,22 +129,11 @@ export class AgentService {
     if (imagePaths && imagePaths.length > 0) {
       for (const imagePath of imagePaths) {
         try {
-          const imageBuffer = await fs.readFile(imagePath);
-          const base64Data = imageBuffer.toString("base64");
-          const ext = path.extname(imagePath).toLowerCase();
-          const mimeTypeMap: Record<string, string> = {
-            ".jpg": "image/jpeg",
-            ".jpeg": "image/jpeg",
-            ".png": "image/png",
-            ".gif": "image/gif",
-            ".webp": "image/webp",
-          };
-          const mediaType = mimeTypeMap[ext] || "image/png";
-
+          const imageData = await readImageAsBase64(imagePath);
           images.push({
-            data: base64Data,
-            mimeType: mediaType,
-            filename: path.basename(imagePath),
+            data: imageData.base64,
+            mimeType: imageData.mimeType,
+            filename: imageData.filename,
           });
         } catch (error) {
           console.error(`[AgentService] Failed to load image ${imagePath}:`, error);
@@ -175,7 +170,7 @@ export class AgentService {
 
     try {
       // Use session model, parameter model, or default
-      const effectiveModel = model || session.model || "claude-opus-4-5-20251101";
+      const effectiveModel = getEffectiveModel(model, session.model);
 
       // Get provider for this model
       const provider = ProviderFactory.getProviderForModel(effectiveModel);
@@ -205,59 +200,13 @@ export class AgentService {
         conversationHistory: conversationHistory.length > 0 ? conversationHistory : undefined,
       };
 
-      // Build prompt content
-      let promptContent: string | Array<{ type: string; text?: string; source?: object }> =
-        message;
-
-      // Append image paths to prompt text (like old implementation)
-      if (imagePaths && imagePaths.length > 0) {
-        let enhancedMessage = message;
-
-        // Append image file paths to the message text
-        enhancedMessage += "\n\nAttached images:\n";
-        for (const imagePath of imagePaths) {
-          enhancedMessage += `- ${imagePath}\n`;
-        }
-
-        const contentBlocks: Array<{ type: string; text?: string; source?: object }> = [];
-
-        if (enhancedMessage && enhancedMessage.trim()) {
-          contentBlocks.push({ type: "text", text: enhancedMessage });
-        }
-
-        for (const imagePath of imagePaths) {
-          try {
-            const imageBuffer = await fs.readFile(imagePath);
-            const base64Data = imageBuffer.toString("base64");
-            const ext = path.extname(imagePath).toLowerCase();
-            const mimeTypeMap: Record<string, string> = {
-              ".jpg": "image/jpeg",
-              ".jpeg": "image/jpeg",
-              ".png": "image/png",
-              ".gif": "image/gif",
-              ".webp": "image/webp",
-            };
-            const mediaType = mimeTypeMap[ext] || "image/png";
-
-            contentBlocks.push({
-              type: "image",
-              source: {
-                type: "base64",
-                media_type: mediaType,
-                data: base64Data,
-              },
-            });
-          } catch (error) {
-            console.error(`[AgentService] Failed to load image ${imagePath}:`, error);
-          }
-        }
-
-        if (contentBlocks.length > 1 || contentBlocks[0]?.type === "image") {
-          promptContent = contentBlocks;
-        } else {
-          promptContent = enhancedMessage;
-        }
-      }
+      // Build prompt content with images
+      const { content: promptContent } = await buildPromptWithImages(
+        message,
+        imagePaths,
+        undefined, // no workDir for agent service
+        true // include image paths in text
+      );
 
       // Set the prompt in options
       options.prompt = promptContent;
@@ -335,7 +284,7 @@ export class AgentService {
         message: currentAssistantMessage,
       };
     } catch (error) {
-      if (error instanceof AbortError || (error as Error)?.name === "AbortError") {
+      if (isAbortError(error)) {
         session.isRunning = false;
         session.abortController = null;
         return { success: false, aborted: true };
