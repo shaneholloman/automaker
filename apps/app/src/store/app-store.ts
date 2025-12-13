@@ -195,10 +195,10 @@ export const DEFAULT_KEYBOARD_SHORTCUTS: KeyboardShortcuts = {
   addProfile: "N", // Only active in profiles view
 
   // Terminal shortcuts (only active in terminal view)
-  // Using Shift modifier to avoid conflicts with terminal signals (Ctrl+D=EOF, Ctrl+W=delete word)
-  splitTerminalRight: "Cmd+Shift+D",
-  splitTerminalDown: "Cmd+Shift+E",
-  closeTerminal: "Cmd+Shift+W",
+  // Using Alt modifier to avoid conflicts with both terminal signals AND browser shortcuts
+  splitTerminalRight: "Alt+D",
+  splitTerminalDown: "Alt+Shift+D",
+  closeTerminal: "Alt+W",
 };
 
 export interface ImageAttachment {

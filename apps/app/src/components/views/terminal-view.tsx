@@ -360,11 +360,16 @@ export function TerminalView() {
         const needsShift = parts.includes('shift');
         const needsAlt = parts.includes('alt');
 
+        // Check modifiers
+        const cmdMatches = needsCmd ? cmdOrCtrl : !cmdOrCtrl;
+        const shiftMatches = needsShift ? e.shiftKey : !e.shiftKey;
+        const altMatches = needsAlt ? e.altKey : !e.altKey;
+
         return (
           e.key.toLowerCase() === key &&
-          cmdOrCtrl === needsCmd &&
-          e.shiftKey === needsShift &&
-          e.altKey === needsAlt
+          cmdMatches &&
+          shiftMatches &&
+          altMatches
         );
       };
 
