@@ -9,9 +9,7 @@ import fs from "fs/promises";
 import type { EventEmitter } from "../lib/events.js";
 import { ProviderFactory } from "../providers/provider-factory.js";
 import type { ExecuteOptions } from "../providers/types.js";
-import {
-  readImageAsBase64,
-} from "../lib/image-handler.js";
+import { readImageAsBase64 } from "../lib/image-handler.js";
 import { buildPromptWithImages } from "../lib/prompt-builder.js";
 import { getEffectiveModel } from "../lib/model-resolver.js";
 import { isAbortError } from "../lib/error-handler.js";
@@ -136,7 +134,10 @@ export class AgentService {
             filename: imageData.filename,
           });
         } catch (error) {
-          console.error(`[AgentService] Failed to load image ${imagePath}:`, error);
+          console.error(
+            `[AgentService] Failed to load image ${imagePath}:`,
+            error
+          );
         }
       }
     }
@@ -197,7 +198,8 @@ export class AgentService {
           "WebFetch",
         ],
         abortController: session.abortController!,
-        conversationHistory: conversationHistory.length > 0 ? conversationHistory : undefined,
+        conversationHistory:
+          conversationHistory.length > 0 ? conversationHistory : undefined,
       };
 
       // Build prompt content with images
@@ -381,7 +383,11 @@ export class AgentService {
     const sessionFile = path.join(this.stateDir, `${sessionId}.json`);
 
     try {
-      await fs.writeFile(sessionFile, JSON.stringify(messages, null, 2), "utf-8");
+      await fs.writeFile(
+        sessionFile,
+        JSON.stringify(messages, null, 2),
+        "utf-8"
+      );
       await this.updateSessionTimestamp(sessionId);
     } catch (error) {
       console.error("[AgentService] Failed to save session:", error);
@@ -398,7 +404,11 @@ export class AgentService {
   }
 
   async saveMetadata(metadata: Record<string, SessionMetadata>): Promise<void> {
-    await fs.writeFile(this.metadataFile, JSON.stringify(metadata, null, 2), "utf-8");
+    await fs.writeFile(
+      this.metadataFile,
+      JSON.stringify(metadata, null, 2),
+      "utf-8"
+    );
   }
 
   async updateSessionTimestamp(sessionId: string): Promise<void> {
@@ -418,7 +428,8 @@ export class AgentService {
     }
 
     return sessions.sort(
-      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+      (a, b) =>
+        new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
     );
   }
 
@@ -505,7 +516,10 @@ export class AgentService {
     return true;
   }
 
-  private emitAgentEvent(sessionId: string, data: Record<string, unknown>): void {
+  private emitAgentEvent(
+    sessionId: string,
+    data: Record<string, unknown>
+  ): void {
     this.events.emit("agent:stream", { sessionId, ...data });
   }
 
