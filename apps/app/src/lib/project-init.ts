@@ -29,7 +29,9 @@ const REQUIRED_STRUCTURE: {
     ".automaker/features",
     ".automaker/images",
   ],
-  files: {},
+  files: {
+    ".automaker/categories.json": "[]",
+  },
 };
 
 /**

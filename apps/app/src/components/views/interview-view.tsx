@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import { getElectronAPI } from "@/lib/electron";
 import { Markdown } from "@/components/ui/markdown";
 import { useFileBrowser } from "@/contexts/file-browser-context";
+import { toast } from "sonner";
 
 interface InterviewMessage {
   id: string;
@@ -290,7 +291,8 @@ export function InterviewView() {
   const handleSelectDirectory = async () => {
     const selectedPath = await openFileBrowser({
       title: "Select Base Directory",
-      description: "Choose the parent directory where your new project will be created",
+      description:
+        "Choose the parent directory where your new project will be created",
     });
 
     if (selectedPath) {
@@ -306,12 +308,23 @@ export function InterviewView() {
     try {
       const api = getElectronAPI();
       // Use platform-specific path separator
-      const pathSep = typeof window !== 'undefined' && (window as any).electronAPI ?
-        (navigator.platform.indexOf('Win') !== -1 ? '\\' : '/') : '/';
+      const pathSep =
+        typeof window !== "undefined" && (window as any).electronAPI
+          ? navigator.platform.indexOf("Win") !== -1
+            ? "\\"
+            : "/"
+          : "/";
       const fullProjectPath = `${projectPath}${pathSep}${projectName}`;
 
       // Create project directory
-      await api.mkdir(fullProjectPath);
+      const mkdirResult = await api.mkdir(fullProjectPath);
+      if (!mkdirResult.success) {
+        toast.error("Failed to create project directory", {
+          description: mkdirResult.error || "Unknown error occurred",
+        });
+        setIsGenerating(false);
+        return;
+      }
 
       // Write app_spec.txt with generated content
       await api.writeFile(

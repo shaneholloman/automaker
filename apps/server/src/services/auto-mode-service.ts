@@ -32,7 +32,15 @@ interface Feature {
   priority?: number;
   spec?: string;
   model?: string; // Model to use for this feature
-  imagePaths?: Array<string | { path: string; filename?: string; mimeType?: string; [key: string]: unknown }>;
+  imagePaths?: Array<
+    | string
+    | {
+        path: string;
+        filename?: string;
+        mimeType?: string;
+        [key: string]: unknown;
+      }
+  >;
 }
 
 interface RunningFeature {
@@ -78,7 +86,7 @@ export class AutoModeService {
       projectPath,
     };
 
-    this.emitAutoModeEvent("auto_mode_complete", {
+    this.emitAutoModeEvent("auto_mode_started", {
       message: `Auto mode started with max ${maxConcurrency} concurrent features`,
       projectPath,
     });
@@ -111,8 +119,9 @@ export class AutoModeService {
         );
 
         if (pendingFeatures.length === 0) {
-          this.emitAutoModeEvent("auto_mode_complete", {
+          this.emitAutoModeEvent("auto_mode_idle", {
             message: "No pending features - auto mode idle",
+            projectPath: this.config!.projectPath,
           });
           await this.sleep(10000);
           continue;
@@ -143,19 +152,25 @@ export class AutoModeService {
     }
 
     this.autoLoopRunning = false;
-    this.emitAutoModeEvent("auto_mode_complete", {
-      message: "Auto mode stopped",
-    });
   }
 
   /**
    * Stop the auto mode loop
    */
   async stopAutoLoop(): Promise<number> {
+    const wasRunning = this.autoLoopRunning;
     this.autoLoopRunning = false;
     if (this.autoLoopAbortController) {
       this.autoLoopAbortController.abort();
       this.autoLoopAbortController = null;
+    }
+
+    // Emit stop event immediately when user explicitly stops
+    if (wasRunning) {
+      this.emitAutoModeEvent("auto_mode_stopped", {
+        message: "Auto mode stopped",
+        projectPath: this.config?.projectPath,
+      });
     }
 
     return this.runningFeatures.size;
@@ -230,10 +245,19 @@ export class AutoModeService {
 
       // Get model from feature
       const model = resolveModelString(feature.model, DEFAULT_MODELS.claude);
-      console.log(`[AutoMode] Executing feature ${featureId} with model: ${model}`);
+      console.log(
+        `[AutoMode] Executing feature ${featureId} with model: ${model}`
+      );
 
       // Run the agent with the feature's model and images
-      await this.runAgent(workDir, featureId, prompt, abortController, imagePaths, model);
+      await this.runAgent(
+        workDir,
+        featureId,
+        prompt,
+        abortController,
+        imagePaths,
+        model
+      );
 
       // Mark as waiting_approval for user review
       await this.updateFeatureStatus(
@@ -422,7 +446,9 @@ Address the follow-up instructions above. Review the previous work and make the 
     try {
       // Get model from feature (already loaded above)
       const model = resolveModelString(feature?.model, DEFAULT_MODELS.claude);
-      console.log(`[AutoMode] Follow-up for feature ${featureId} using model: ${model}`);
+      console.log(
+        `[AutoMode] Follow-up for feature ${featureId} using model: ${model}`
+      );
 
       // Update feature status to in_progress
       await this.updateFeatureStatus(projectPath, featureId, "in_progress");
@@ -458,9 +484,11 @@ Address the follow-up instructions above. Review the previous work and make the 
               filename
             );
             copiedImagePaths.push(relativePath);
-
           } catch (error) {
-            console.error(`[AutoMode] Failed to copy follow-up image ${imagePath}:`, error);
+            console.error(
+              `[AutoMode] Failed to copy follow-up image ${imagePath}:`,
+              error
+            );
           }
         }
       }
@@ -506,7 +534,14 @@ Address the follow-up instructions above. Review the previous work and make the 
       }
 
       // Use fullPrompt (already built above) with model and all images
-      await this.runAgent(workDir, featureId, fullPrompt, abortController, allImagePaths.length > 0 ? allImagePaths : imagePaths, model);
+      await this.runAgent(
+        workDir,
+        featureId,
+        fullPrompt,
+        abortController,
+        allImagePaths.length > 0 ? allImagePaths : imagePaths,
+        model
+      );
 
       // Mark as waiting_approval for user review
       await this.updateFeatureStatus(
@@ -717,7 +752,10 @@ Format your response as a structured markdown document.`;
 
     try {
       // Use default Claude model for analysis (can be overridden in the future)
-      const analysisModel = resolveModelString(undefined, DEFAULT_MODELS.claude);
+      const analysisModel = resolveModelString(
+        undefined,
+        DEFAULT_MODELS.claude
+      );
       const provider = ProviderFactory.getProviderForModel(analysisModel);
 
       const options: ExecuteOptions = {
@@ -917,7 +955,11 @@ Format your response as a structured markdown document.`;
           try {
             const data = await fs.readFile(featurePath, "utf-8");
             const feature = JSON.parse(data);
-            if (feature.status === "pending" || feature.status === "ready") {
+            if (
+              feature.status === "pending" ||
+              feature.status === "ready" ||
+              feature.status === "backlog"
+            ) {
               features.push(feature);
             }
           } catch {
@@ -998,9 +1040,15 @@ ${feature.spec}
       const imagesList = feature.imagePaths
         .map((img, idx) => {
           const path = typeof img === "string" ? img : img.path;
-          const filename = typeof img === "string" ? path.split("/").pop() : img.filename || path.split("/").pop();
-          const mimeType = typeof img === "string" ? "image/*" : img.mimeType || "image/*";
-          return `   ${idx + 1}. ${filename} (${mimeType})\n      Path: ${path}`;
+          const filename =
+            typeof img === "string"
+              ? path.split("/").pop()
+              : img.filename || path.split("/").pop();
+          const mimeType =
+            typeof img === "string" ? "image/*" : img.mimeType || "image/*";
+          return `   ${
+            idx + 1
+          }. ${filename} (${mimeType})\n      Path: ${path}`;
         })
         .join("\n");
 
@@ -1038,7 +1086,9 @@ When done, summarize what you implemented and any notes for the developer.`;
     model?: string
   ): Promise<void> {
     const finalModel = resolveModelString(model, DEFAULT_MODELS.claude);
-    console.log(`[AutoMode] runAgent called for feature ${featureId} with model: ${finalModel}`);
+    console.log(
+      `[AutoMode] runAgent called for feature ${featureId} with model: ${finalModel}`
+    );
 
     // Get provider for this model
     const provider = ProviderFactory.getProviderForModel(finalModel);
@@ -1060,14 +1110,7 @@ When done, summarize what you implemented and any notes for the developer.`;
       model: finalModel,
       maxTurns: 50,
       cwd: workDir,
-      allowedTools: [
-        "Read",
-        "Write",
-        "Edit",
-        "Glob",
-        "Grep",
-        "Bash",
-      ],
+      allowedTools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash"],
       abortController,
     };
 
@@ -1089,12 +1132,15 @@ When done, summarize what you implemented and any notes for the developer.`;
             responseText = block.text || "";
 
             // Check for authentication errors in the response
-            if (block.text && (block.text.includes("Invalid API key") ||
+            if (
+              block.text &&
+              (block.text.includes("Invalid API key") ||
                 block.text.includes("authentication_failed") ||
-                block.text.includes("Fix external API key"))) {
+                block.text.includes("Fix external API key"))
+            ) {
               throw new Error(
                 "Authentication failed: Invalid or expired API key. " +
-                "Please check your ANTHROPIC_API_KEY or GOOGLE_API_KEY, or run 'claude login' to re-authenticate."
+                  "Please check your ANTHROPIC_API_KEY or GOOGLE_API_KEY, or run 'claude login' to re-authenticate."
               );
             }
 

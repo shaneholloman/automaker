@@ -236,7 +236,13 @@ export function WelcomeView() {
       const projectPath = `${parentDir}/${projectName}`;
 
       // Create project directory
-      await api.mkdir(projectPath);
+      const mkdirResult = await api.mkdir(projectPath);
+      if (!mkdirResult.success) {
+        toast.error("Failed to create project directory", {
+          description: mkdirResult.error || "Unknown error occurred",
+        });
+        return;
+      }
 
       // Initialize .automaker directory with all necessary files
       const initResult = await initializeProject(projectPath);

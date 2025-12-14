@@ -7,7 +7,11 @@ import { Router, type Request, type Response } from "express";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
-import { validatePath, addAllowedPath, isPathAllowed } from "../lib/security.js";
+import {
+  validatePath,
+  addAllowedPath,
+  isPathAllowed,
+} from "../lib/security.js";
 import type { EventEmitter } from "../lib/events.js";
 
 export function createFsRoutes(_events: EventEmitter): Router {
@@ -69,8 +73,40 @@ export function createFsRoutes(_events: EventEmitter): Router {
         return;
       }
 
-      const resolvedPath = validatePath(dirPath);
+      const resolvedPath = path.resolve(dirPath);
+
+      // Security check: allow paths in allowed directories OR within home directory
+      const isAllowed = (() => {
+        // Check if path or parent is in allowed paths
+        if (isPathAllowed(resolvedPath)) return true;
+        const parentPath = path.dirname(resolvedPath);
+        if (isPathAllowed(parentPath)) return true;
+
+        // Also allow within home directory (like the /browse endpoint)
+        const homeDir = os.homedir();
+        const normalizedHome = path.normalize(homeDir);
+        if (
+          resolvedPath === normalizedHome ||
+          resolvedPath.startsWith(normalizedHome + path.sep)
+        ) {
+          return true;
+        }
+
+        return false;
+      })();
+
+      if (!isAllowed) {
+        res.status(403).json({
+          success: false,
+          error: `Access denied: ${dirPath} is not in an allowed directory`,
+        });
+        return;
+      }
+
       await fs.mkdir(resolvedPath, { recursive: true });
+
+      // Add the new directory to allowed paths so subsequent operations work
+      addAllowedPath(resolvedPath);
 
       res.json({ success: true });
     } catch (error) {
@@ -197,7 +233,9 @@ export function createFsRoutes(_events: EventEmitter): Router {
         const stats = await fs.stat(resolvedPath);
 
         if (!stats.isDirectory()) {
-          res.status(400).json({ success: false, error: "Path is not a directory" });
+          res
+            .status(400)
+            .json({ success: false, error: "Path is not a directory" });
           return;
         }
 
@@ -229,7 +267,9 @@ export function createFsRoutes(_events: EventEmitter): Router {
       };
 
       if (!directoryName) {
-        res.status(400).json({ success: false, error: "directoryName is required" });
+        res
+          .status(400)
+          .json({ success: false, error: "directoryName is required" });
         return;
       }
 
@@ -254,10 +294,16 @@ export function createFsRoutes(_events: EventEmitter): Router {
       const searchPaths: string[] = [
         process.cwd(), // Current working directory
         process.env.HOME || process.env.USERPROFILE || "", // User home
-        path.join(process.env.HOME || process.env.USERPROFILE || "", "Documents"),
+        path.join(
+          process.env.HOME || process.env.USERPROFILE || "",
+          "Documents"
+        ),
         path.join(process.env.HOME || process.env.USERPROFILE || "", "Desktop"),
         // Common project locations
-        path.join(process.env.HOME || process.env.USERPROFILE || "", "Projects"),
+        path.join(
+          process.env.HOME || process.env.USERPROFILE || "",
+          "Projects"
+        ),
       ].filter(Boolean);
 
       // Also check parent of current working directory
@@ -275,7 +321,7 @@ export function createFsRoutes(_events: EventEmitter): Router {
         try {
           const candidatePath = path.join(searchPath, directoryName);
           const stats = await fs.stat(candidatePath);
-          
+
           if (stats.isDirectory()) {
             // Verify it matches by checking for sample files
             if (sampleFiles && sampleFiles.length > 0) {
@@ -284,8 +330,10 @@ export function createFsRoutes(_events: EventEmitter): Router {
                 // Remove directory name prefix from sample file path
                 const relativeFile = sampleFile.startsWith(directoryName + "/")
                   ? sampleFile.substring(directoryName.length + 1)
-                  : sampleFile.split("/").slice(1).join("/") || sampleFile.split("/").pop() || sampleFile;
-                
+                  : sampleFile.split("/").slice(1).join("/") ||
+                    sampleFile.split("/").pop() ||
+                    sampleFile;
+
                 try {
                   const filePath = path.join(candidatePath, relativeFile);
                   await fs.access(filePath);
@@ -294,7 +342,7 @@ export function createFsRoutes(_events: EventEmitter): Router {
                   // File doesn't exist, continue checking
                 }
               }
-              
+
               // If at least one file matches, consider it a match
               if (matches === 0 && sampleFiles.length > 0) {
                 continue; // Try next candidate
@@ -405,7 +453,9 @@ export function createFsRoutes(_events: EventEmitter): Router {
         const stats = await fs.stat(targetPath);
 
         if (!stats.isDirectory()) {
-          res.status(400).json({ success: false, error: "Path is not a directory" });
+          res
+            .status(400)
+            .json({ success: false, error: "Path is not a directory" });
           return;
         }
 
@@ -438,7 +488,8 @@ export function createFsRoutes(_events: EventEmitter): Router {
       } catch (error) {
         res.status(400).json({
           success: false,
-          error: error instanceof Error ? error.message : "Failed to read directory",
+          error:
+            error instanceof Error ? error.message : "Failed to read directory",
         });
       }
     } catch (error) {
@@ -464,8 +515,8 @@ export function createFsRoutes(_events: EventEmitter): Router {
       const fullPath = path.isAbsolute(imagePath)
         ? imagePath
         : projectPath
-          ? path.join(projectPath, imagePath)
-          : imagePath;
+        ? path.join(projectPath, imagePath)
+        : imagePath;
 
       // Check if file exists
       try {
@@ -490,7 +541,10 @@ export function createFsRoutes(_events: EventEmitter): Router {
         ".bmp": "image/bmp",
       };
 
-      res.setHeader("Content-Type", mimeTypes[ext] || "application/octet-stream");
+      res.setHeader(
+        "Content-Type",
+        mimeTypes[ext] || "application/octet-stream"
+      );
       res.setHeader("Cache-Control", "public, max-age=3600");
       res.send(buffer);
     } catch (error) {
@@ -546,38 +600,42 @@ export function createFsRoutes(_events: EventEmitter): Router {
   });
 
   // Delete board background image
-  router.post("/delete-board-background", async (req: Request, res: Response) => {
-    try {
-      const { projectPath } = req.body as { projectPath: string };
-
-      if (!projectPath) {
-        res.status(400).json({
-          success: false,
-          error: "projectPath is required",
-        });
-        return;
-      }
-
-      const boardDir = path.join(projectPath, ".automaker", "board");
-
+  router.post(
+    "/delete-board-background",
+    async (req: Request, res: Response) => {
       try {
-        // Try to remove all files in the board directory
-        const files = await fs.readdir(boardDir);
-        for (const file of files) {
-          if (file.startsWith("background")) {
-            await fs.unlink(path.join(boardDir, file));
-          }
-        }
-      } catch {
-        // Directory may not exist, that's fine
-      }
+        const { projectPath } = req.body as { projectPath: string };
 
-      res.json({ success: true });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      res.status(500).json({ success: false, error: message });
+        if (!projectPath) {
+          res.status(400).json({
+            success: false,
+            error: "projectPath is required",
+          });
+          return;
+        }
+
+        const boardDir = path.join(projectPath, ".automaker", "board");
+
+        try {
+          // Try to remove all files in the board directory
+          const files = await fs.readdir(boardDir);
+          for (const file of files) {
+            if (file.startsWith("background")) {
+              await fs.unlink(path.join(boardDir, file));
+            }
+          }
+        } catch {
+          // Directory may not exist, that's fine
+        }
+
+        res.json({ success: true });
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+        res.status(500).json({ success: false, error: message });
+      }
     }
-  });
+  );
 
   // Browse directories for file picker
   // SECURITY: Restricted to home directory, allowed paths, and drive roots on Windows
@@ -614,7 +672,10 @@ export function createFsRoutes(_events: EventEmitter): Router {
         const normalizedHome = path.resolve(homeDir);
 
         // Allow browsing within home directory
-        if (resolved === normalizedHome || resolved.startsWith(normalizedHome + path.sep)) {
+        if (
+          resolved === normalizedHome ||
+          resolved.startsWith(normalizedHome + path.sep)
+        ) {
           return true;
         }
 
@@ -646,7 +707,8 @@ export function createFsRoutes(_events: EventEmitter): Router {
       if (!isSafePath(targetPath)) {
         res.status(403).json({
           success: false,
-          error: "Access denied: browsing is restricted to your home directory and allowed project paths",
+          error:
+            "Access denied: browsing is restricted to your home directory and allowed project paths",
         });
         return;
       }
@@ -655,7 +717,9 @@ export function createFsRoutes(_events: EventEmitter): Router {
         const stats = await fs.stat(targetPath);
 
         if (!stats.isDirectory()) {
-          res.status(400).json({ success: false, error: "Path is not a directory" });
+          res
+            .status(400)
+            .json({ success: false, error: "Path is not a directory" });
           return;
         }
 
@@ -688,7 +752,8 @@ export function createFsRoutes(_events: EventEmitter): Router {
       } catch (error) {
         res.status(400).json({
           success: false,
-          error: error instanceof Error ? error.message : "Failed to read directory",
+          error:
+            error instanceof Error ? error.message : "Failed to read directory",
         });
       }
     } catch (error) {

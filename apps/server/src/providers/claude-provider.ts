@@ -7,7 +7,10 @@
 
 import { query, type Options } from "@anthropic-ai/claude-agent-sdk";
 import { BaseProvider } from "./base-provider.js";
-import { convertHistoryToMessages, normalizeContentBlocks } from "../lib/conversation-utils.js";
+import {
+  convertHistoryToMessages,
+  normalizeContentBlocks,
+} from "../lib/conversation-utils.js";
 import type {
   ExecuteOptions,
   ProviderMessage,
@@ -23,7 +26,9 @@ export class ClaudeProvider extends BaseProvider {
   /**
    * Execute a query using Claude Agent SDK
    */
-  async *executeQuery(options: ExecuteOptions): AsyncGenerator<ProviderMessage> {
+  async *executeQuery(
+    options: ExecuteOptions
+  ): AsyncGenerator<ProviderMessage> {
     const {
       prompt,
       model,
@@ -36,21 +41,24 @@ export class ClaudeProvider extends BaseProvider {
     } = options;
 
     // Build Claude SDK options
+    const defaultTools = [
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep",
+      "Bash",
+      "WebSearch",
+      "WebFetch",
+    ];
+    const toolsToUse = allowedTools || defaultTools;
+
     const sdkOptions: Options = {
       model,
       systemPrompt,
       maxTurns,
       cwd,
-      allowedTools: allowedTools || [
-        "Read",
-        "Write",
-        "Edit",
-        "Glob",
-        "Grep",
-        "Bash",
-        "WebSearch",
-        "WebFetch",
-      ],
+      allowedTools: toolsToUse,
       permissionMode: "acceptEdits",
       sandbox: {
         enabled: true,
@@ -60,32 +68,68 @@ export class ClaudeProvider extends BaseProvider {
     };
 
     // Build prompt payload with conversation history
-    let promptPayload: string | AsyncGenerator<any, void, unknown>;
+    let promptPayload: string | AsyncGenerator<any, void, unknown> | Array<any>;
 
     if (conversationHistory && conversationHistory.length > 0) {
       // Multi-turn conversation with history
-      promptPayload = (async function* () {
-        // Yield history messages using utility
-        const historyMessages = convertHistoryToMessages(conversationHistory);
-        for (const msg of historyMessages) {
-          yield msg;
-        }
+      // Convert history to SDK message format
+      // Note: When using async generator, SDK only accepts SDKUserMessage (type: 'user')
+      // So we filter to only include user messages to avoid SDK errors
+      const historyMessages = convertHistoryToMessages(conversationHistory);
+      const hasAssistantMessages = historyMessages.some(
+        (msg) => msg.type === "assistant"
+      );
 
-        // Yield current prompt
-        yield {
-          type: "user" as const,
-          session_id: "",
-          message: {
-            role: "user" as const,
-            content: normalizeContentBlocks(prompt),
-          },
-          parent_tool_use_id: null,
-        };
-      })();
+      if (hasAssistantMessages) {
+        // If we have assistant messages, use async generator but filter to only user messages
+        // This maintains conversation flow while respecting SDK type constraints
+        promptPayload = (async function* () {
+          // Filter to only user messages - SDK async generator only accepts SDKUserMessage
+          const userHistoryMessages = historyMessages.filter(
+            (msg) => msg.type === "user"
+          );
+          for (const msg of userHistoryMessages) {
+            yield msg;
+          }
+
+          // Yield current prompt
+          const normalizedPrompt = normalizeContentBlocks(prompt);
+          const currentPrompt = {
+            type: "user" as const,
+            session_id: "",
+            message: {
+              role: "user" as const,
+              content: normalizedPrompt,
+            },
+            parent_tool_use_id: null,
+          };
+          yield currentPrompt;
+        })();
+      } else {
+        // Only user messages in history - can use async generator normally
+        promptPayload = (async function* () {
+          for (const msg of historyMessages) {
+            yield msg;
+          }
+
+          // Yield current prompt
+          const normalizedPrompt = normalizeContentBlocks(prompt);
+          const currentPrompt = {
+            type: "user" as const,
+            session_id: "",
+            message: {
+              role: "user" as const,
+              content: normalizedPrompt,
+            },
+            parent_tool_use_id: null,
+          };
+          yield currentPrompt;
+        })();
+      }
     } else if (Array.isArray(prompt)) {
       // Multi-part prompt (with images) - no history
       promptPayload = (async function* () {
-        yield {
+        const multiPartPrompt = {
           type: "user" as const,
           session_id: "",
           message: {
@@ -94,6 +138,7 @@ export class ClaudeProvider extends BaseProvider {
           },
           parent_tool_use_id: null,
         };
+        yield multiPartPrompt;
       })();
     } else {
       // Simple text prompt - no history
@@ -101,11 +146,19 @@ export class ClaudeProvider extends BaseProvider {
     }
 
     // Execute via Claude Agent SDK
-    const stream = query({ prompt: promptPayload, options: sdkOptions });
+    try {
+      const stream = query({ prompt: promptPayload, options: sdkOptions });
 
-    // Stream messages directly - they're already in the correct format
-    for await (const msg of stream) {
-      yield msg as ProviderMessage;
+      // Stream messages directly - they're already in the correct format
+      for await (const msg of stream) {
+        yield msg as ProviderMessage;
+      }
+    } catch (error) {
+      console.error(
+        "[ClaudeProvider] executeQuery() error during execution:",
+        error
+      );
+      throw error;
     }
   }
 
@@ -114,22 +167,25 @@ export class ClaudeProvider extends BaseProvider {
    */
   async detectInstallation(): Promise<InstallationStatus> {
     // Claude SDK is always available since it's a dependency
-    const hasApiKey =
-      !!process.env.ANTHROPIC_API_KEY || !!process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    const hasAnthropicKey = !!process.env.ANTHROPIC_API_KEY;
+    const hasOAuthToken = !!process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    const hasApiKey = hasAnthropicKey || hasOAuthToken;
 
-    return {
+    const status: InstallationStatus = {
       installed: true,
       method: "sdk",
       hasApiKey,
       authenticated: hasApiKey,
     };
+
+    return status;
   }
 
   /**
    * Get available Claude models
    */
   getAvailableModels(): ModelDefinition[] {
-    return [
+    const models = [
       {
         id: "claude-opus-4-5-20251101",
         name: "Claude Opus 4.5",
@@ -140,7 +196,7 @@ export class ClaudeProvider extends BaseProvider {
         maxOutputTokens: 16000,
         supportsVision: true,
         supportsTools: true,
-        tier: "premium",
+        tier: "premium" as const,
         default: true,
       },
       {
@@ -153,7 +209,7 @@ export class ClaudeProvider extends BaseProvider {
         maxOutputTokens: 16000,
         supportsVision: true,
         supportsTools: true,
-        tier: "standard",
+        tier: "standard" as const,
       },
       {
         id: "claude-3-5-sonnet-20241022",
@@ -165,7 +221,7 @@ export class ClaudeProvider extends BaseProvider {
         maxOutputTokens: 8000,
         supportsVision: true,
         supportsTools: true,
-        tier: "standard",
+        tier: "standard" as const,
       },
       {
         id: "claude-3-5-haiku-20241022",
@@ -177,9 +233,10 @@ export class ClaudeProvider extends BaseProvider {
         maxOutputTokens: 8000,
         supportsVision: true,
         supportsTools: true,
-        tier: "basic",
+        tier: "basic" as const,
       },
-    ];
+    ] satisfies ModelDefinition[];
+    return models;
   }
 
   /**

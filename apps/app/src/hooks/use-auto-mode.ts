@@ -33,16 +33,21 @@ export function useAutoMode() {
   );
 
   // Helper to look up project ID from path
-  const getProjectIdFromPath = useCallback((path: string): string | undefined => {
-    const project = projects.find(p => p.path === path);
-    return project?.id;
-  }, [projects]);
+  const getProjectIdFromPath = useCallback(
+    (path: string): string | undefined => {
+      const project = projects.find((p) => p.path === path);
+      return project?.id;
+    },
+    [projects]
+  );
 
   // Get project-specific auto mode state
   const projectId = currentProject?.id;
   const projectAutoModeState = useMemo(() => {
     if (!projectId) return { isRunning: false, runningTasks: [] };
-    return autoModeByProject[projectId] || { isRunning: false, runningTasks: [] };
+    return (
+      autoModeByProject[projectId] || { isRunning: false, runningTasks: [] }
+    );
   }, [autoModeByProject, projectId]);
 
   const isAutoModeRunning = projectAutoModeState.isRunning;
@@ -62,10 +67,10 @@ export function useAutoMode() {
       // Events include projectPath from backend - use it to look up project ID
       // Fall back to current projectId if not provided in event
       let eventProjectId: string | undefined;
-      if ('projectPath' in event && event.projectPath) {
+      if ("projectPath" in event && event.projectPath) {
         eventProjectId = getProjectIdFromPath(event.projectPath);
       }
-      if (!eventProjectId && 'projectId' in event && event.projectId) {
+      if (!eventProjectId && "projectId" in event && event.projectId) {
         eventProjectId = event.projectId;
       }
       if (!eventProjectId) {
@@ -74,7 +79,10 @@ export function useAutoMode() {
 
       // Skip event if we couldn't determine the project
       if (!eventProjectId) {
-        console.warn("[AutoMode] Could not determine project for event:", event);
+        console.warn(
+          "[AutoMode] Could not determine project for event:",
+          event
+        );
         return;
       }
 
@@ -111,20 +119,41 @@ export function useAutoMode() {
           }
           break;
 
-        case "auto_mode_complete":
-          // All features completed for this project
+        case "auto_mode_stopped":
+          // Auto mode was explicitly stopped (by user or error)
           setAutoModeRunning(eventProjectId, false);
           clearRunningTasks(eventProjectId);
-          console.log("[AutoMode] All features completed!");
+          console.log("[AutoMode] Auto mode stopped");
+          break;
+
+        case "auto_mode_started":
+          // Auto mode started - ensure UI reflects running state
+          console.log("[AutoMode] Auto mode started:", event.message);
+          break;
+
+        case "auto_mode_idle":
+          // Auto mode is running but has no pending features to pick up
+          // This is NOT a stop - auto mode keeps running and will pick up new features
+          console.log("[AutoMode] Auto mode idle - waiting for new features");
+          break;
+
+        case "auto_mode_complete":
+          // Legacy event - only handle if it looks like a stop (for backwards compatibility)
+          if (event.message === "Auto mode stopped") {
+            setAutoModeRunning(eventProjectId, false);
+            clearRunningTasks(eventProjectId);
+            console.log("[AutoMode] Auto mode stopped (legacy event)");
+          }
           break;
 
         case "auto_mode_error":
           console.error("[AutoMode Error]", event.error);
           if (event.featureId && event.error) {
             // Check for authentication errors and provide a more helpful message
-            const isAuthError = event.errorType === "authentication" ||
-                               event.error.includes("Authentication failed") ||
-                               event.error.includes("Invalid API key");
+            const isAuthError =
+              event.errorType === "authentication" ||
+              event.error.includes("Authentication failed") ||
+              event.error.includes("Invalid API key");
 
             const errorMessage = isAuthError
               ? `Authentication failed: Please check your API key in Settings or run 'claude login' in terminal to re-authenticate.`
@@ -202,11 +231,12 @@ export function useAutoMode() {
     if (!api?.autoMode) return;
 
     // Find all projects that have auto mode marked as running
-    const projectsToRestart: Array<{ projectId: string; projectPath: string }> = [];
+    const projectsToRestart: Array<{ projectId: string; projectPath: string }> =
+      [];
     for (const [projectId, state] of Object.entries(autoModeByProject)) {
       if (state.isRunning) {
         // Find the project path for this project ID
-        const project = projects.find(p => p.id === projectId);
+        const project = projects.find((p) => p.id === projectId);
         if (project) {
           projectsToRestart.push({ projectId, projectPath: project.path });
         }
@@ -216,18 +246,27 @@ export function useAutoMode() {
     // Restart auto mode for each project
     for (const { projectId, projectPath } of projectsToRestart) {
       console.log(`[AutoMode] Restoring auto mode for project: ${projectPath}`);
-      api.autoMode.start(projectPath, maxConcurrency).then(result => {
-        if (!result.success) {
-          console.error(`[AutoMode] Failed to restore auto mode for ${projectPath}:`, result.error);
-          // Mark as not running if we couldn't restart
+      api.autoMode
+        .start(projectPath, maxConcurrency)
+        .then((result) => {
+          if (!result.success) {
+            console.error(
+              `[AutoMode] Failed to restore auto mode for ${projectPath}:`,
+              result.error
+            );
+            // Mark as not running if we couldn't restart
+            setAutoModeRunning(projectId, false);
+          } else {
+            console.log(`[AutoMode] Restored auto mode for ${projectPath}`);
+          }
+        })
+        .catch((error) => {
+          console.error(
+            `[AutoMode] Error restoring auto mode for ${projectPath}:`,
+            error
+          );
           setAutoModeRunning(projectId, false);
-        } else {
-          console.log(`[AutoMode] Restored auto mode for ${projectPath}`);
-        }
-      }).catch(error => {
-        console.error(`[AutoMode] Error restoring auto mode for ${projectPath}:`, error);
-        setAutoModeRunning(projectId, false);
-      });
+        });
     }
     // Only run once on mount - intentionally empty dependency array
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -246,11 +285,16 @@ export function useAutoMode() {
         throw new Error("Auto mode API not available");
       }
 
-      const result = await api.autoMode.start(currentProject.path, maxConcurrency);
+      const result = await api.autoMode.start(
+        currentProject.path,
+        maxConcurrency
+      );
 
       if (result.success) {
         setAutoModeRunning(currentProject.id, true);
-        console.log(`[AutoMode] Started successfully with maxConcurrency: ${maxConcurrency}`);
+        console.log(
+          `[AutoMode] Started successfully with maxConcurrency: ${maxConcurrency}`
+        );
       } else {
         console.error("[AutoMode] Failed to start:", result.error);
         throw new Error(result.error || "Failed to start auto mode");
@@ -285,7 +329,9 @@ export function useAutoMode() {
         // Stopping auto mode only turns off the toggle to prevent new features
         // from being picked up. Running tasks will complete naturally and be
         // removed via the auto_mode_feature_complete event.
-        console.log("[AutoMode] Stopped successfully - running tasks will continue");
+        console.log(
+          "[AutoMode] Stopped successfully - running tasks will continue"
+        );
       } else {
         console.error("[AutoMode] Failed to stop:", result.error);
         throw new Error(result.error || "Failed to stop auto mode");

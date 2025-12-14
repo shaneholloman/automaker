@@ -26,6 +26,12 @@ export function initAllowedPaths(): void {
   if (dataDir) {
     allowedPaths.add(path.resolve(dataDir));
   }
+
+  // Always allow the workspace directory (where projects are created)
+  const workspaceDir = process.env.WORKSPACE_DIR;
+  if (workspaceDir) {
+    allowedPaths.add(path.resolve(workspaceDir));
+  }
 }
 
 /**
@@ -58,7 +64,9 @@ export function validatePath(filePath: string): string {
   const resolved = path.resolve(filePath);
 
   if (!isPathAllowed(resolved)) {
-    throw new Error(`Access denied: ${filePath} is not in an allowed directory`);
+    throw new Error(
+      `Access denied: ${filePath} is not in an allowed directory`
+    );
   }
 
   return resolved;

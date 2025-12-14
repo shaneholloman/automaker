@@ -204,6 +204,24 @@ export type AutoModeEvent =
       projectPath?: string;
     }
   | {
+      type: "auto_mode_stopped";
+      message: string;
+      projectId?: string;
+      projectPath?: string;
+    }
+  | {
+      type: "auto_mode_started";
+      message: string;
+      projectId?: string;
+      projectPath?: string;
+    }
+  | {
+      type: "auto_mode_idle";
+      message: string;
+      projectId?: string;
+      projectPath?: string;
+    }
+  | {
       type: "auto_mode_phase";
       featureId: string;
       projectId?: string;
