@@ -6,8 +6,21 @@ import type { Request, Response } from "express";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { getErrorMessage, logError } from "../common.js";
+import { appendUntrackedFileDiffs, generateDiffsForNonGitDirectory } from "../../common.js";
 
 const execAsync = promisify(exec);
+
+/**
+ * Check if a path is a git repository
+ */
+async function isGitRepo(repoPath: string): Promise<boolean> {
+  try {
+    await execAsync("git rev-parse --is-inside-work-tree", { cwd: repoPath });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export function createDiffsHandler() {
   return async (req: Request, res: Response): Promise<void> => {
@@ -16,6 +29,26 @@ export function createDiffsHandler() {
 
       if (!projectPath) {
         res.status(400).json({ success: false, error: "projectPath required" });
+        return;
+      }
+
+      // Check if it's a git repository
+      const isRepo = await isGitRepo(projectPath);
+
+      if (!isRepo) {
+        // Not a git repo - list all files and treat them as new
+        try {
+          const result = await generateDiffsForNonGitDirectory(projectPath);
+          res.json({
+            success: true,
+            diff: result.diff,
+            files: result.files,
+            hasChanges: result.files.length > 0,
+          });
+        } catch (error) {
+          logError(error, "Failed to list files in non-git directory");
+          res.json({ success: true, diff: "", files: [], hasChanges: false });
+        }
         return;
       }
 
@@ -50,13 +83,19 @@ export function createDiffsHandler() {
             };
           });
 
+        // Generate synthetic diffs for untracked (new) files
+        // git diff HEAD doesn't include untracked files, so we need to generate them
+        const combinedDiff = await appendUntrackedFileDiffs(projectPath, diff, files);
+
         res.json({
           success: true,
-          diff,
+          diff: combinedDiff,
           files,
           hasChanges: files.length > 0,
         });
-      } catch {
+      } catch (innerError) {
+        // Log the error for debugging instead of silently swallowing it
+        logError(innerError, "Git command failed");
         res.json({ success: true, diff: "", files: [], hasChanges: false });
       }
     } catch (error) {
