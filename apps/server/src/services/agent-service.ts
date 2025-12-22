@@ -7,7 +7,12 @@ import path from 'path';
 import * as secureFs from '../lib/secure-fs.js';
 import type { EventEmitter } from '../lib/events.js';
 import type { ExecuteOptions } from '@automaker/types';
-import { readImageAsBase64, buildPromptWithImages, isAbortError } from '@automaker/utils';
+import {
+  readImageAsBase64,
+  buildPromptWithImages,
+  isAbortError,
+  loadContextFiles,
+} from '@automaker/utils';
 import { ProviderFactory } from '../providers/provider-factory.js';
 import { createChatOptions, validateWorkingDirectory } from '../lib/sdk-options.js';
 import { PathNotAllowedError } from '@automaker/platform';
@@ -178,12 +183,27 @@ export class AgentService {
     await this.saveSession(sessionId, session.messages);
 
     try {
+      // Determine the effective working directory for context loading
+      const effectiveWorkDir = workingDirectory || session.workingDirectory;
+
+      // Load project context files (CLAUDE.md, CODE_QUALITY.md, etc.)
+      const { formattedPrompt: contextFilesPrompt } = await loadContextFiles({
+        projectPath: effectiveWorkDir,
+        fsModule: secureFs as Parameters<typeof loadContextFiles>[0]['fsModule'],
+      });
+
+      // Build combined system prompt with base prompt and context files
+      const baseSystemPrompt = this.getSystemPrompt();
+      const combinedSystemPrompt = contextFilesPrompt
+        ? `${contextFilesPrompt}\n\n${baseSystemPrompt}`
+        : baseSystemPrompt;
+
       // Build SDK options using centralized configuration
       const sdkOptions = createChatOptions({
-        cwd: workingDirectory || session.workingDirectory,
+        cwd: effectiveWorkDir,
         model: model,
         sessionModel: session.model,
-        systemPrompt: this.getSystemPrompt(),
+        systemPrompt: combinedSystemPrompt,
         abortController: session.abortController!,
       });
 
@@ -203,8 +223,8 @@ export class AgentService {
       const options: ExecuteOptions = {
         prompt: '', // Will be set below based on images
         model: effectiveModel,
-        cwd: workingDirectory || session.workingDirectory,
-        systemPrompt: this.getSystemPrompt(),
+        cwd: effectiveWorkDir,
+        systemPrompt: combinedSystemPrompt,
         maxTurns: maxTurns,
         allowedTools: allowedTools,
         abortController: session.abortController!,

@@ -37,21 +37,20 @@ export {
 } from './prompt-builder.js';
 
 // Logger
-export {
-  createLogger,
-  getLogLevel,
-  setLogLevel,
-  LogLevel,
-} from './logger.js';
+export { createLogger, getLogLevel, setLogLevel, LogLevel } from './logger.js';
 
 // File system utilities
-export {
-  mkdirSafe,
-  existsSafe,
-} from './fs-utils.js';
+export { mkdirSafe, existsSafe } from './fs-utils.js';
 
 // Path utilities
+export { normalizePath, pathsEqual } from './path-utils.js';
+
+// Context file loading
 export {
-  normalizePath,
-  pathsEqual,
-} from './path-utils.js';
+  loadContextFiles,
+  getContextFilesSummary,
+  type ContextMetadata,
+  type ContextFileInfo,
+  type ContextFilesResult,
+  type LoadContextFilesOptions,
+} from './context-loader.js';
