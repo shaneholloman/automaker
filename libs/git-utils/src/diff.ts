@@ -77,10 +77,12 @@ Binary file ${cleanPath} added
         // Empty directory
         return createNewFileDiff(cleanPath, '040000', ['[Empty directory]']);
       }
-      // Generate diffs for all files in the directory
-      const diffs = await Promise.all(
-        filesInDir.map((filePath) => generateSyntheticDiffForNewFile(basePath, filePath))
-      );
+      // Generate diffs for all files in the directory sequentially
+      // Using sequential processing to avoid exhausting file descriptors on large directories
+      const diffs: string[] = [];
+      for (const filePath of filesInDir) {
+        diffs.push(await generateSyntheticDiffForNewFile(basePath, filePath));
+      }
       return diffs.join('');
     }
 
