@@ -105,3 +105,7 @@ export type {
   BacklogPlanRequest,
   BacklogPlanApplyResult,
 } from './backlog-plan.js';
+
+// Cursor types
+export * from './cursor-models.js';
+export * from './cursor-cli.js';

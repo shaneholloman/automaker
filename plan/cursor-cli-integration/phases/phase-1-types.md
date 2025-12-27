@@ -1,6 +1,6 @@
 # Phase 1: Core Types & Configuration
 
-**Status:** `pending`
+**Status:** `completed`
 **Dependencies:** Phase 0 (Analysis)
 **Estimated Effort:** Small (type definitions only)
 
@@ -16,7 +16,7 @@ Define all Cursor-specific types and extend existing types to support the new pr
 
 ### Task 1.1: Create Cursor Model Definitions
 
-**Status:** `pending`
+**Status:** `completed`
 
 **File:** `libs/types/src/cursor-models.ts`
 
@@ -124,7 +124,7 @@ export function getAllCursorModelIds(): CursorModelId[] {
 
 ### Task 1.2: Create Cursor CLI Types
 
-**Status:** `pending`
+**Status:** `completed`
 
 **File:** `libs/types/src/cursor-cli.ts`
 
@@ -247,7 +247,7 @@ export type CursorStreamEvent =
 
 ### Task 1.3: Extend ModelProvider Type
 
-**Status:** `pending`
+**Status:** `completed`
 
 **File:** `libs/types/src/settings.ts`
 
@@ -263,7 +263,7 @@ export type ModelProvider = 'claude' | 'cursor';
 
 ### Task 1.4: Add Cursor Profile Config Type
 
-**Status:** `pending`
+**Status:** `skipped` (not needed - thinking is embedded in model ID)
 
 **File:** `libs/types/src/settings.ts`
 
@@ -282,7 +282,7 @@ export interface CursorProfileConfig {
 
 ### Task 1.5: Update ModelOption Interface
 
-**Status:** `pending`
+**Status:** `completed`
 
 **File:** `libs/types/src/model-display.ts`
 
@@ -312,7 +312,7 @@ export interface ModelOption {
 
 ### Task 1.6: Extend DEFAULT_MODELS
 
-**Status:** `pending`
+**Status:** `completed`
 
 **File:** `libs/types/src/model.ts`
 
@@ -333,7 +333,7 @@ export const DEFAULT_MODELS = {
 
 ### Task 1.7: Update Type Exports
 
-**Status:** `pending`
+**Status:** `completed`
 
 **File:** `libs/types/src/index.ts`
 
