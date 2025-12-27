@@ -144,26 +144,11 @@ export class AgentService {
     imagePaths?: string[];
     model?: string;
   }) {
-    console.log('[AgentService] sendMessage() called:', {
-      sessionId,
-      messageLength: message?.length,
-      workingDirectory,
-      imageCount: imagePaths?.length || 0,
-      model,
-    });
-
     const session = this.sessions.get(sessionId);
     if (!session) {
       console.error('[AgentService] ERROR: Session not found:', sessionId);
       throw new Error(`Session ${sessionId} not found`);
     }
-
-    console.log('[AgentService] Session found:', {
-      sessionId,
-      messageCount: session.messages.length,
-      isRunning: session.isRunning,
-      workingDirectory: session.workingDirectory,
-    });
 
     if (session.isRunning) {
       console.error('[AgentService] ERROR: Agent already running for session:', sessionId);
@@ -213,19 +198,16 @@ export class AgentService {
     session.abortController = new AbortController();
 
     // Emit started event so UI can show thinking indicator
-    console.log('[AgentService] Emitting "started" event for session:', sessionId);
     this.emitAgentEvent(sessionId, {
       type: 'started',
     });
 
     // Emit user message event
-    console.log('[AgentService] Emitting "message" event for session:', sessionId);
     this.emitAgentEvent(sessionId, {
       type: 'message',
       message: userMessage,
     });
 
-    console.log('[AgentService] Saving session messages');
     await this.saveSession(sessionId, session.messages);
 
     try {
@@ -278,12 +260,7 @@ export class AgentService {
       const allowedTools = sdkOptions.allowedTools as string[] | undefined;
 
       // Get provider for this model
-      console.log('[AgentService] Getting provider for model:', effectiveModel);
       const provider = ProviderFactory.getProviderForModel(effectiveModel);
-
-      console.log(
-        `[AgentService] Using provider "${provider.getName()}" for model "${effectiveModel}"`
-      );
 
       // Build options for provider
       const options: ExecuteOptions = {
@@ -311,13 +288,6 @@ export class AgentService {
       // Set the prompt in options
       options.prompt = promptContent;
 
-      console.log('[AgentService] Executing query via provider:', {
-        model: effectiveModel,
-        promptLength: typeof promptContent === 'string' ? promptContent.length : 'array',
-        hasConversationHistory: !!conversationHistory.length,
-        sdkSessionId: session.sdkSessionId,
-      });
-
       // Execute via provider
       const stream = provider.executeQuery(options);
 
@@ -329,7 +299,6 @@ export class AgentService {
         // Capture SDK session ID from any message and persist it
         if (msg.session_id && !session.sdkSessionId) {
           session.sdkSessionId = msg.session_id;
-          console.log(`[AgentService] Captured SDK session ID: ${msg.session_id}`);
           // Persist the SDK session ID to ensure conversation continuity across server restarts
           await this.updateSession(sessionId, { sdkSessionId: msg.session_id });
         }
@@ -352,10 +321,6 @@ export class AgentService {
                   currentAssistantMessage.content = responseText;
                 }
 
-                console.log(
-                  '[AgentService] Emitting "stream" event, text length:',
-                  responseText.length
-                );
                 this.emitAgentEvent(sessionId, {
                   type: 'stream',
                   messageId: currentAssistantMessage.id,
@@ -369,7 +334,6 @@ export class AgentService {
                 };
                 toolUses.push(toolUse);
 
-                console.log('[AgentService] Tool use detected:', toolUse.name);
                 this.emitAgentEvent(sessionId, {
                   type: 'tool_use',
                   tool: toolUse,
@@ -385,7 +349,6 @@ export class AgentService {
             }
           }
 
-          console.log('[AgentService] Emitting "complete" event');
           this.emitAgentEvent(sessionId, {
             type: 'complete',
             messageId: currentAssistantMessage?.id,
@@ -783,8 +746,6 @@ export class AgentService {
       queue: session.promptQueue,
     });
 
-    console.log(`[AgentService] Processing next queued prompt for session ${sessionId}`);
-
     try {
       await this.sendMessage({
         sessionId,
@@ -803,11 +764,6 @@ export class AgentService {
   }
 
   private emitAgentEvent(sessionId: string, data: Record<string, unknown>): void {
-    console.log('[AgentService] emitAgentEvent() called:', {
-      sessionId,
-      eventType: data.type,
-      dataKeys: Object.keys(data),
-    });
     this.events.emit('agent:stream', { sessionId, ...data });
   }
 
