@@ -21,6 +21,7 @@ import {
   MessageSquare,
   GitMerge,
   AlertCircle,
+  RefreshCw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { WorktreeInfo, DevServerInfo, PRInfo, GitRepoStatus } from '../types';
@@ -50,6 +51,8 @@ interface WorktreeActionsDropdownProps {
   onStartDevServer: (worktree: WorktreeInfo) => void;
   onStopDevServer: (worktree: WorktreeInfo) => void;
   onOpenDevServerUrl: (worktree: WorktreeInfo) => void;
+  onRunInitScript: (worktree: WorktreeInfo) => void;
+  hasInitScript: boolean;
 }
 
 export function WorktreeActionsDropdown({
@@ -76,6 +79,8 @@ export function WorktreeActionsDropdown({
   onStartDevServer,
   onStopDevServer,
   onOpenDevServerUrl,
+  onRunInitScript,
+  hasInitScript,
 }: WorktreeActionsDropdownProps) {
   // Check if there's a PR associated with this worktree from stored metadata
   const hasPR = !!worktree.pr;
@@ -204,6 +209,12 @@ export function WorktreeActionsDropdown({
           <ExternalLink className="w-3.5 h-3.5 mr-2" />
           Open in {defaultEditorName}
         </DropdownMenuItem>
+        {!worktree.isMain && hasInitScript && (
+          <DropdownMenuItem onClick={() => onRunInitScript(worktree)} className="text-xs">
+            <RefreshCw className="w-3.5 h-3.5 mr-2" />
+            Re-run Init Script
+          </DropdownMenuItem>
+        )}
         <DropdownMenuSeparator />
         {worktree.hasChanges && (
           <TooltipWrapper

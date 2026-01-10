@@ -1,9 +1,10 @@
 /**
- * Init Script routes - Read/write the worktree-init.sh file
+ * Init Script routes - Read/write/run the worktree-init.sh file
  *
- * GET /init-script - Read the init script content
+ * POST /init-script - Read the init script content
  * PUT /init-script - Write content to the init script file
  * DELETE /init-script - Delete the init script file
+ * POST /run-init-script - Run the init script for a worktree
  */
 
 import type { Request, Response } from 'express';
@@ -11,6 +12,8 @@ import path from 'path';
 import * as secureFs from '../../../lib/secure-fs.js';
 import { getErrorMessage, logError } from '../common.js';
 import { createLogger } from '@automaker/utils';
+import type { EventEmitter } from '../../../lib/events.js';
+import { forceRunInitScript } from '../../../services/init-script-service.js';
 
 const logger = createLogger('InitScript');
 
@@ -153,6 +156,80 @@ export function createDeleteInitScriptHandler() {
       }
     } catch (error) {
       logError(error, 'Delete init script failed');
+      res.status(500).json({
+        success: false,
+        error: getErrorMessage(error),
+      });
+    }
+  };
+}
+
+/**
+ * POST /run-init-script - Run (or re-run) the init script for a worktree
+ */
+export function createRunInitScriptHandler(events: EventEmitter) {
+  return async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { projectPath, worktreePath, branch } = req.body as {
+        projectPath: string;
+        worktreePath: string;
+        branch: string;
+      };
+
+      if (!projectPath) {
+        res.status(400).json({
+          success: false,
+          error: 'projectPath is required',
+        });
+        return;
+      }
+
+      if (!worktreePath) {
+        res.status(400).json({
+          success: false,
+          error: 'worktreePath is required',
+        });
+        return;
+      }
+
+      if (!branch) {
+        res.status(400).json({
+          success: false,
+          error: 'branch is required',
+        });
+        return;
+      }
+
+      const scriptPath = getInitScriptPath(projectPath);
+
+      // Check if script exists
+      try {
+        await secureFs.access(scriptPath);
+      } catch {
+        res.status(404).json({
+          success: false,
+          error: 'No init script found. Create one in Settings > Worktrees.',
+        });
+        return;
+      }
+
+      logger.info(`Running init script for branch "${branch}" (forced)`);
+
+      // Run the script asynchronously (non-blocking)
+      forceRunInitScript({
+        projectPath,
+        worktreePath,
+        branch,
+        emitter: events,
+      });
+
+      // Return immediately - progress will be streamed via WebSocket events
+      res.json({
+        success: true,
+        message: 'Init script started',
+      });
+    } catch (error) {
+      logError(error, 'Run init script failed');
       res.status(500).json({
         success: false,
         error: getErrorMessage(error),

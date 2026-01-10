@@ -46,6 +46,8 @@ interface WorktreeTabProps {
   onStartDevServer: (worktree: WorktreeInfo) => void;
   onStopDevServer: (worktree: WorktreeInfo) => void;
   onOpenDevServerUrl: (worktree: WorktreeInfo) => void;
+  onRunInitScript: (worktree: WorktreeInfo) => void;
+  hasInitScript: boolean;
 }
 
 export function WorktreeTab({
@@ -87,6 +89,8 @@ export function WorktreeTab({
   onStartDevServer,
   onStopDevServer,
   onOpenDevServerUrl,
+  onRunInitScript,
+  hasInitScript,
 }: WorktreeTabProps) {
   let prBadge: JSX.Element | null = null;
   if (worktree.pr) {
@@ -336,6 +340,8 @@ export function WorktreeTab({
         onStartDevServer={onStartDevServer}
         onStopDevServer={onStopDevServer}
         onOpenDevServerUrl={onOpenDevServerUrl}
+        onRunInitScript={onRunInitScript}
+        hasInitScript={hasInitScript}
       />
     </div>
   );

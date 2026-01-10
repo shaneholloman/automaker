@@ -499,7 +499,10 @@ type EventType =
   | 'issue-validation:event'
   | 'backlog-plan:event'
   | 'ideation:stream'
-  | 'ideation:analysis';
+  | 'ideation:analysis'
+  | 'worktree:init-started'
+  | 'worktree:init-output'
+  | 'worktree:init-completed';
 
 type EventCallback = (payload: unknown) => void;
 
@@ -825,13 +828,14 @@ export class HttpApiClient implements ElectronAPI {
     return response.json();
   }
 
-  private async httpDelete<T>(endpoint: string): Promise<T> {
+  private async httpDelete<T>(endpoint: string, body?: unknown): Promise<T> {
     // Ensure API key is initialized before making request
     await waitForApiKeyInit();
     const response = await fetch(`${this.serverUrl}${endpoint}`, {
       method: 'DELETE',
       headers: this.getHeaders(),
       credentials: 'include', // Include cookies for session auth
+      body: body ? JSON.stringify(body) : undefined,
     });
 
     if (response.status === 401 || response.status === 403) {
@@ -1609,12 +1613,13 @@ export class HttpApiClient implements ElectronAPI {
     getPRInfo: (worktreePath: string, branchName: string) =>
       this.post('/api/worktree/pr-info', { worktreePath, branchName }),
     // Init script methods
-    getInitScript: (projectPath: string) =>
-      this.post('/api/worktree/init-script', { projectPath }),
+    getInitScript: (projectPath: string) => this.post('/api/worktree/init-script', { projectPath }),
     setInitScript: (projectPath: string, content: string) =>
       this.put('/api/worktree/init-script', { projectPath, content }),
     deleteInitScript: (projectPath: string) =>
-      this.delete('/api/worktree/init-script', { projectPath }),
+      this.httpDelete('/api/worktree/init-script', { projectPath }),
+    runInitScript: (projectPath: string, worktreePath: string, branch: string) =>
+      this.post('/api/worktree/run-init-script', { projectPath, worktreePath, branch }),
     onInitScriptEvent: (
       callback: (event: {
         type: 'worktree:init-started' | 'worktree:init-output' | 'worktree:init-completed';

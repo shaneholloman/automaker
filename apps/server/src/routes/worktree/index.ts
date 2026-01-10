@@ -35,6 +35,7 @@ import {
   createGetInitScriptHandler,
   createPutInitScriptHandler,
   createDeleteInitScriptHandler,
+  createRunInitScriptHandler,
 } from './routes/init-script.js';
 
 export function createWorktreeRoutes(events: EventEmitter): Router {
@@ -97,6 +98,11 @@ export function createWorktreeRoutes(events: EventEmitter): Router {
   router.post('/init-script', validatePathParams('projectPath'), createGetInitScriptHandler());
   router.put('/init-script', validatePathParams('projectPath'), createPutInitScriptHandler());
   router.delete('/init-script', validatePathParams('projectPath'), createDeleteInitScriptHandler());
+  router.post(
+    '/run-init-script',
+    validatePathParams('projectPath', 'worktreePath'),
+    createRunInitScriptHandler(events)
+  );
 
   return router;
 }
