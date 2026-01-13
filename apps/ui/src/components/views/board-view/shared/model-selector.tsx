@@ -4,7 +4,6 @@ import { Badge } from '@/components/ui/badge';
 import { Brain, AlertTriangle } from 'lucide-react';
 import { AnthropicIcon, CursorIcon, OpenAIIcon } from '@/components/ui/provider-icon';
 import { cn } from '@/lib/utils';
-import type { ModelAlias } from '@/store/app-store';
 import { useAppStore } from '@/store/app-store';
 import { useSetupStore } from '@/store/setup-store';
 import { getModelProvider, PROVIDER_PREFIXES, stripProviderPrefix } from '@automaker/types';
@@ -19,6 +18,10 @@ interface ModelSelectorProps {
   testIdPrefix?: string;
 }
 
+const CODEX_EMPTY_AVAILABLE_MESSAGE = 'No Codex models available';
+const CODEX_EMPTY_ENABLED_MESSAGE =
+  'No Codex models enabled. Enable models in Settings → AI Providers.';
+
 export function ModelSelector({
   selectedModel,
   onModelSelect,
@@ -27,6 +30,8 @@ export function ModelSelector({
   const {
     enabledCursorModels,
     cursorDefaultModel,
+    enabledCodexModels,
+    codexDefaultModel,
     codexModels,
     codexModelsLoading,
     codexModelsError,
@@ -49,8 +54,10 @@ export function ModelSelector({
     }
   }, [isCodexAvailable, codexModels.length, codexModelsLoading, fetchCodexModels]);
 
+  const enabledCodexModelIds = new Set(enabledCodexModels);
+
   // Transform codex models from store to ModelOption format
-  const dynamicCodexModels: ModelOption[] = codexModels.map((model) => {
+  const codexModelOptions: ModelOption[] = codexModels.map((model) => {
     // Infer badge based on tier
     let badge: string | undefined;
     if (model.tier === 'premium') badge = 'Premium';
@@ -67,6 +74,10 @@ export function ModelSelector({
     };
   });
 
+  const enabledCodexModelOptions = codexModelOptions.filter((model) =>
+    enabledCodexModelIds.has(model.id)
+  );
+
   // Filter Cursor models based on enabled models from global settings
   const filteredCursorModels = CURSOR_MODELS.filter((model) => {
     // Extract the cursor model ID from the prefixed ID (e.g., "cursor-auto" -> "auto")
@@ -74,20 +85,35 @@ export function ModelSelector({
     return enabledCursorModels.includes(cursorModelId as any);
   });
 
+  const hasEnabledCodexModels = enabledCodexModelOptions.length > 0;
+  const codexDefaultSelection =
+    codexModelOptions.find((model) => model.id === codexDefaultModel)?.id ||
+    enabledCodexModelOptions[0]?.id ||
+    codexModelOptions[0]?.id;
+
   const handleProviderChange = (provider: ModelProvider) => {
     if (provider === 'cursor' && selectedProvider !== 'cursor') {
       // Switch to Cursor's default model (from global settings)
       onModelSelect(`${PROVIDER_PREFIXES.cursor}${cursorDefaultModel}`);
     } else if (provider === 'codex' && selectedProvider !== 'codex') {
-      // Switch to Codex's default model (use isDefault flag from dynamic models)
-      const defaultModel = codexModels.find((m) => m.isDefault);
-      const defaultModelId = defaultModel?.id || codexModels[0]?.id || 'codex-gpt-5.2-codex';
-      onModelSelect(defaultModelId);
+      // Switch to Codex's default model (from global settings)
+      if (codexDefaultSelection) {
+        onModelSelect(codexDefaultSelection);
+      }
     } else if (provider === 'claude' && selectedProvider !== 'claude') {
       // Switch to Claude's default model
       onModelSelect('sonnet');
     }
   };
+
+  const showCodexAvailableEmpty =
+    !codexModelsLoading && !codexModelsError && codexModelOptions.length === 0;
+  const showCodexEnabledEmpty =
+    !codexModelsLoading &&
+    !codexModelsError &&
+    codexModelOptions.length > 0 &&
+    !hasEnabledCodexModels;
+  const showCodexList = !codexModelsLoading && !codexModelsError && hasEnabledCodexModels;
 
   return (
     <div className="space-y-4">
@@ -272,7 +298,7 @@ export function ModelSelector({
           </div>
 
           {/* Loading state */}
-          {codexModelsLoading && dynamicCodexModels.length === 0 && (
+          {codexModelsLoading && codexModelOptions.length === 0 && (
             <div className="flex items-center justify-center gap-2 p-6 text-sm text-muted-foreground">
               <RefreshCw className="w-4 h-4 animate-spin" />
               Loading models...
@@ -297,15 +323,21 @@ export function ModelSelector({
           )}
 
           {/* Model list */}
-          {!codexModelsLoading && !codexModelsError && dynamicCodexModels.length === 0 && (
+          {showCodexAvailableEmpty && (
             <div className="text-sm text-muted-foreground p-3 border border-dashed rounded-md text-center">
-              No Codex models available
+              {CODEX_EMPTY_AVAILABLE_MESSAGE}
             </div>
           )}
 
-          {!codexModelsLoading && dynamicCodexModels.length > 0 && (
+          {showCodexEnabledEmpty && (
+            <div className="text-sm text-muted-foreground p-3 border border-dashed rounded-md text-center">
+              {CODEX_EMPTY_ENABLED_MESSAGE}
+            </div>
+          )}
+
+          {showCodexList && (
             <div className="flex flex-col gap-2">
-              {dynamicCodexModels.map((option) => {
+              {enabledCodexModelOptions.map((option) => {
                 const isSelected = selectedModel === option.id;
                 return (
                   <button

@@ -1,5 +1,5 @@
 /**
- * POST /validate-issue endpoint - Validate a GitHub issue using Claude SDK or Cursor (async)
+ * POST /validate-issue endpoint - Validate a GitHub issue using provider abstraction (async)
  *
  * Scans the codebase to determine if an issue is valid, invalid, or needs clarification.
  * Runs asynchronously and emits events for progress and completion.
@@ -7,7 +7,6 @@
  */
 
 import type { Request, Response } from 'express';
-import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { EventEmitter } from '../../../lib/events.js';
 import type {
   IssueValidationResult,
@@ -18,12 +17,11 @@ import type {
   LinkedPRInfo,
   ThinkingLevel,
 } from '@automaker/types';
-import { isCursorModel, DEFAULT_PHASE_MODELS, stripProviderPrefix } from '@automaker/types';
+import { isCursorModel, DEFAULT_PHASE_MODELS } from '@automaker/types';
 import { resolvePhaseModel } from '@automaker/model-resolver';
-import { createSuggestionsOptions } from '../../../lib/sdk-options.js';
 import { extractJson } from '../../../lib/json-extractor.js';
 import { writeValidation } from '../../../lib/validation-storage.js';
-import { ProviderFactory } from '../../../providers/provider-factory.js';
+import { streamingQuery } from '../../../providers/simple-query-service.js';
 import {
   issueValidationSchema,
   ISSUE_VALIDATION_SYSTEM_PROMPT,
@@ -102,7 +100,7 @@ async function runValidation(
 
   try {
     // Build the prompt (include comments and linked PRs if provided)
-    const prompt = buildValidationPrompt(
+    const basePrompt = buildValidationPrompt(
       issueNumber,
       issueTitle,
       issueBody,
@@ -111,20 +109,15 @@ async function runValidation(
       linkedPRs
     );
 
-    let validationResult: IssueValidationResult | null = null;
     let responseText = '';
 
-    // Route to appropriate provider based on model
-    if (isCursorModel(model)) {
-      // Use Cursor provider for Cursor models
-      logger.info(`Using Cursor provider for validation with model: ${model}`);
+    // Determine if we should use structured output (Claude supports it, Cursor doesn't)
+    const useStructuredOutput = !isCursorModel(model);
 
-      const provider = ProviderFactory.getProviderForModel(model);
-      // Strip provider prefix - providers expect bare model IDs
-      const bareModel = stripProviderPrefix(model);
-
-      // For Cursor, include the system prompt and schema in the user prompt
-      const cursorPrompt = `${ISSUE_VALIDATION_SYSTEM_PROMPT}
+    // Build the final prompt - for Cursor, include system prompt and JSON schema instructions
+    let finalPrompt = basePrompt;
+    if (!useStructuredOutput) {
+      finalPrompt = `${ISSUE_VALIDATION_SYSTEM_PROMPT}
 
 CRITICAL INSTRUCTIONS:
 1. DO NOT write any files. Return the JSON in your response only.
@@ -135,120 +128,70 @@ ${JSON.stringify(issueValidationSchema, null, 2)}
 
 Your entire response should be valid JSON starting with { and ending with }. No text before or after.
 
-${prompt}`;
-
-      for await (const msg of provider.executeQuery({
-        prompt: cursorPrompt,
-        model: bareModel,
-        cwd: projectPath,
-        readOnly: true, // Issue validation only reads code, doesn't write
-      })) {
-        if (msg.type === 'assistant' && msg.message?.content) {
-          for (const block of msg.message.content) {
-            if (block.type === 'text' && block.text) {
-              responseText += block.text;
-
-              // Emit progress event
-              const progressEvent: IssueValidationEvent = {
-                type: 'issue_validation_progress',
-                issueNumber,
-                content: block.text,
-                projectPath,
-              };
-              events.emit('issue-validation:event', progressEvent);
-            }
-          }
-        } else if (msg.type === 'result' && msg.subtype === 'success' && msg.result) {
-          // Use result if it's a final accumulated message
-          if (msg.result.length > responseText.length) {
-            responseText = msg.result;
-          }
-        }
-      }
-
-      // Parse JSON from the response text using shared utility
-      if (responseText) {
-        validationResult = extractJson<IssueValidationResult>(responseText, { logger });
-      }
-    } else {
-      // Use Claude SDK for Claude models
-      logger.info(`Using Claude provider for validation with model: ${model}`);
-
-      // Load autoLoadClaudeMd setting
-      const autoLoadClaudeMd = await getAutoLoadClaudeMdSetting(
-        projectPath,
-        settingsService,
-        '[ValidateIssue]'
-      );
-
-      // Use thinkingLevel from request if provided, otherwise fall back to settings
-      let effectiveThinkingLevel: ThinkingLevel | undefined = thinkingLevel;
-      if (!effectiveThinkingLevel) {
-        const settings = await settingsService?.getGlobalSettings();
-        const phaseModelEntry =
-          settings?.phaseModels?.validationModel || DEFAULT_PHASE_MODELS.validationModel;
-        const resolved = resolvePhaseModel(phaseModelEntry);
-        effectiveThinkingLevel = resolved.thinkingLevel;
-      }
-
-      // Create SDK options with structured output and abort controller
-      const options = createSuggestionsOptions({
-        cwd: projectPath,
-        model: model as ModelAlias,
-        systemPrompt: ISSUE_VALIDATION_SYSTEM_PROMPT,
-        abortController,
-        autoLoadClaudeMd,
-        thinkingLevel: effectiveThinkingLevel,
-        outputFormat: {
-          type: 'json_schema',
-          schema: issueValidationSchema as Record<string, unknown>,
-        },
-      });
-
-      // Execute the query
-      const stream = query({ prompt, options });
-
-      for await (const msg of stream) {
-        // Collect assistant text for debugging and emit progress
-        if (msg.type === 'assistant' && msg.message?.content) {
-          for (const block of msg.message.content) {
-            if (block.type === 'text') {
-              responseText += block.text;
-
-              // Emit progress event
-              const progressEvent: IssueValidationEvent = {
-                type: 'issue_validation_progress',
-                issueNumber,
-                content: block.text,
-                projectPath,
-              };
-              events.emit('issue-validation:event', progressEvent);
-            }
-          }
-        }
-
-        // Extract structured output on success
-        if (msg.type === 'result' && msg.subtype === 'success') {
-          const resultMsg = msg as { structured_output?: IssueValidationResult };
-          if (resultMsg.structured_output) {
-            validationResult = resultMsg.structured_output;
-            logger.debug('Received structured output:', validationResult);
-          }
-        }
-
-        // Handle errors
-        if (msg.type === 'result') {
-          const resultMsg = msg as { subtype?: string };
-          if (resultMsg.subtype === 'error_max_structured_output_retries') {
-            logger.error('Failed to produce valid structured output after retries');
-            throw new Error('Could not produce valid validation output');
-          }
-        }
-      }
+${basePrompt}`;
     }
+
+    // Load autoLoadClaudeMd setting
+    const autoLoadClaudeMd = await getAutoLoadClaudeMdSetting(
+      projectPath,
+      settingsService,
+      '[ValidateIssue]'
+    );
+
+    // Use thinkingLevel from request if provided, otherwise fall back to settings
+    let effectiveThinkingLevel: ThinkingLevel | undefined = thinkingLevel;
+    if (!effectiveThinkingLevel) {
+      const settings = await settingsService?.getGlobalSettings();
+      const phaseModelEntry =
+        settings?.phaseModels?.validationModel || DEFAULT_PHASE_MODELS.validationModel;
+      const resolved = resolvePhaseModel(phaseModelEntry);
+      effectiveThinkingLevel = resolved.thinkingLevel;
+    }
+
+    logger.info(`Using model: ${model}`);
+
+    // Use streamingQuery with event callbacks
+    const result = await streamingQuery({
+      prompt: finalPrompt,
+      model: model as string,
+      cwd: projectPath,
+      systemPrompt: useStructuredOutput ? ISSUE_VALIDATION_SYSTEM_PROMPT : undefined,
+      abortController,
+      thinkingLevel: effectiveThinkingLevel,
+      readOnly: true, // Issue validation only reads code, doesn't write
+      settingSources: autoLoadClaudeMd ? ['user', 'project', 'local'] : undefined,
+      outputFormat: useStructuredOutput
+        ? {
+            type: 'json_schema',
+            schema: issueValidationSchema as Record<string, unknown>,
+          }
+        : undefined,
+      onText: (text) => {
+        responseText += text;
+        // Emit progress event
+        const progressEvent: IssueValidationEvent = {
+          type: 'issue_validation_progress',
+          issueNumber,
+          content: text,
+          projectPath,
+        };
+        events.emit('issue-validation:event', progressEvent);
+      },
+    });
 
     // Clear timeout
     clearTimeout(timeoutId);
+
+    // Get validation result from structured output or parse from text
+    let validationResult: IssueValidationResult | null = null;
+
+    if (result.structured_output) {
+      validationResult = result.structured_output as unknown as IssueValidationResult;
+      logger.debug('Received structured output:', validationResult);
+    } else if (responseText) {
+      // Parse JSON from response text
+      validationResult = extractJson<IssueValidationResult>(responseText, { logger });
+    }
 
     // Require validation result
     if (!validationResult) {
@@ -299,7 +242,7 @@ ${prompt}`;
 /**
  * Creates the handler for validating GitHub issues against the codebase.
  *
- * Uses Claude SDK with:
+ * Uses the provider abstraction with:
  * - Read-only tools (Read, Glob, Grep) for codebase analysis
  * - JSON schema structured output for reliable parsing
  * - System prompt guiding the validation process
