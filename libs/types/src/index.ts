@@ -21,6 +21,13 @@ export type {
   ReasoningEffort,
 } from './provider.js';
 
+// Provider constants and utilities
+export {
+  DEFAULT_TIMEOUT_MS,
+  REASONING_TIMEOUT_MULTIPLIERS,
+  calculateReasoningTimeout,
+} from './provider.js';
+
 // Codex CLI types
 export type {
   CodexSandboxMode,

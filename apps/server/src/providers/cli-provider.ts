@@ -35,6 +35,7 @@ import {
   type SubprocessOptions,
   type WslCliResult,
 } from '@automaker/platform';
+import { calculateReasoningTimeout, DEFAULT_TIMEOUT_MS } from '@automaker/types';
 import { createLogger, isAbortError } from '@automaker/utils';
 import { execSync } from 'child_process';
 import * as fs from 'fs';
@@ -450,6 +451,13 @@ export abstract class CliProvider extends BaseProvider {
       }
     }
 
+    // Calculate dynamic timeout based on reasoning effort.
+    // CLI operations use a higher base timeout (120s) than the Codex provider default (30s)
+    // because CLI tools like cursor-agent may have longer startup and processing times.
+    // This addresses GitHub issue #530 where reasoning models with 'xhigh' effort would timeout.
+    const CLI_BASE_TIMEOUT_MS = 120000;
+    const timeout = calculateReasoningTimeout(options.reasoningEffort, CLI_BASE_TIMEOUT_MS);
+
     // WSL strategy
     if (this.useWsl && this.wslCliPath) {
       const wslCwd = windowsToWslPath(cwd);
@@ -473,7 +481,7 @@ export abstract class CliProvider extends BaseProvider {
         cwd, // Windows cwd for spawn
         env: filteredEnv,
         abortController: options.abortController,
-        timeout: 120000, // CLI operations may take longer
+        timeout,
       };
     }
 
@@ -488,7 +496,7 @@ export abstract class CliProvider extends BaseProvider {
         cwd,
         env: filteredEnv,
         abortController: options.abortController,
-        timeout: 120000,
+        timeout,
       };
     }
 
@@ -501,7 +509,7 @@ export abstract class CliProvider extends BaseProvider {
       cwd,
       env: filteredEnv,
       abortController: options.abortController,
-      timeout: 120000,
+      timeout,
     };
   }
 
