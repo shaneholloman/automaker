@@ -474,6 +474,12 @@ async function startServer(): Promise<void> {
     ? path.join(process.resourcesPath, 'server')
     : path.join(__dirname, '../../server');
 
+  // IMPORTANT: Use shared data directory (not Electron's user data directory)
+  // This ensures Electron and web mode share the same settings/projects
+  // In dev: project root/data
+  // In production: same as Electron user data (for app isolation)
+  const dataDir = app.isPackaged ? app.getPath('userData') : path.join(__dirname, '../../../data');
+
   // Build enhanced PATH that includes Node.js directory (cross-platform)
   const enhancedPath = buildEnhancedPath(command, process.env.PATH || '');
   if (enhancedPath !== process.env.PATH) {
@@ -484,7 +490,7 @@ async function startServer(): Promise<void> {
     ...process.env,
     PATH: enhancedPath,
     PORT: serverPort.toString(),
-    DATA_DIR: app.getPath('userData'),
+    DATA_DIR: dataDir,
     NODE_PATH: serverNodeModules,
     // Pass API key to server for CSRF protection
     AUTOMAKER_API_KEY: apiKey!,
