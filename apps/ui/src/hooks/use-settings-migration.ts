@@ -469,7 +469,7 @@ export function useSettingsMigration(): MigrationState {
             // Update localStorage with fresh server data to keep cache in sync
             // This prevents stale localStorage data from being used when switching between modes
             try {
-              localStorage.setItem('automaker-settings-cache', JSON.stringify(serverSettings));
+              setItem('automaker-settings-cache', JSON.stringify(serverSettings));
               logger.debug('Updated localStorage with fresh server settings');
             } catch (storageError) {
               logger.warn('Failed to update localStorage cache:', storageError);

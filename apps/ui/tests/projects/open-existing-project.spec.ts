@@ -159,7 +159,7 @@ test.describe('Open Project', () => {
     // The project name appears in the project switcher button with title attribute
     // (The button uses data-testid with projectId, not projectName)
     if (targetProjectName) {
-      const projectSwitcherButton = page.locator(`button[title="${targetProjectName}"]`).first();
+      const projectSwitcherButton = page.getByRole('button', { name: targetProjectName }).first();
       await expect(projectSwitcherButton).toBeVisible({
         timeout: 15000,
       });
